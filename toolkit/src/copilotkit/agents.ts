@@ -10,7 +10,7 @@ import {
 import {
   BuiltInAgent,
   type BuiltInAgentConfiguration,
-} from "@copilotkit/runtime/v2";
+} from "@openbot/noma-runtime";
 import {
   NomaIntelligence,
   PlatformRequestError,

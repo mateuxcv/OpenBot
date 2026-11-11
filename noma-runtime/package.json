@@ -1,0 +1,19 @@
+{
+  "name": "@openbot/noma-runtime",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts",
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "ai": "^4.3.0",
+    "@ai-sdk/openai": "^1.3.0",
+    "@ai-sdk/anthropic": "^1.3.0",
+    "@ag-ui/client": "1.0.2",
+    "rxjs": "7.8.1",
+    "hono": "^4.10.0",
+    "@openbot/noma-intelligence": "workspace:*"
+  }
+}

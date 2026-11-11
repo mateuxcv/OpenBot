@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { IntelligenceAgentRunner } from "@copilotkit/runtime/v2";
+import { IntelligenceAgentRunner } from "./agents/intelligence-runner";
 import { workOwner } from "@openbot/shared/work-owner";
 import { eq, inArray } from "drizzle-orm";
 import { type AuditStore, handoffInitiator } from "../audit";

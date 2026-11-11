@@ -1,8 +1,5 @@
 import type { AbstractAgent } from "@ag-ui/client";
-import {
-  CopilotKitIntelligence,
-  IntelligenceAgentRunner,
-} from "@copilotkit/runtime/v2";
+import type { NomaIntelligenceClient as CopilotKitIntelligence } from "@openbot/noma-intelligence/factory";
 import { computerGuidance } from "@openbot/shared/bot-prompt";
 import { isPersonBrowserId } from "@openbot/shared/openbot-browser";
 import { workOwner } from "@openbot/shared/work-owner";

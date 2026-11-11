@@ -4,13 +4,11 @@ import type {
   BuiltInAgentConfiguration,
   CopilotRuntimeHooks,
   GetTrajectoryLearningContainerIds,
-} from "@copilotkit/runtime/v2";
+} from "@openbot/noma-runtime";
 import {
-  type CopilotKitIntelligence,
-  CopilotRuntime,
   resolveModel,
-} from "@copilotkit/runtime/v2";
-import { createCopilotHonoHandler } from "@copilotkit/runtime/v2/hono";
+} from "@openbot/noma-runtime";
+import { createNomaHonoHandler as createCopilotHonoHandler } from "@openbot/noma-runtime";
 import {
   type ComputerGuidance,
   frameworkGuidance,
@@ -3100,31 +3098,8 @@ export function mountCopilotRuntime(
         apiUrl: intelligence.apiUrl,
         wsUrl: intelligence.gatewayWsUrl,
         browserWsUrl: intelligence.browserGatewayWsUrl,
-        // Where the browser's address is a path (this server carries the socket, and has no public
-        // URL), the Recorder's capture pass is handed it whole. See intelligence-gateway-proxy.ts.
         ownOrigin: capturePassOrigin,
         apiKey: intelligence.apiKey,
-        getLearningContainerId: async ({
-          agentId,
-          input,
-          user,
-        }): Promise<string | undefined> => {
-          if (!user)
-            throw new Error(
-              "Learning Thread assignment requires a verified user.",
-            );
-          return learning?.containerForThread({
-            agentId,
-            threadId: input.threadId,
-            userId: user.id,
-          });
-        },
-        ...(trajectoryCapture
-          ? {
-              getTrajectoryLearningContainerIds:
-                trajectoryCapture.selectLearningContainers,
-            }
-          : {}),
       }),
     );
 
@@ -3139,175 +3114,66 @@ export function mountCopilotRuntime(
       })
     : undefined;
 
-  const runtime = new CopilotRuntime({
-    // `mode` is inferred from the presence of `intelligence`; passing it is a type error.
-    //
-    // identifyUser is NOT optional in practice. Threads and memory are scoped to the user it
-    // returns, so omitting it puts every person in the deployment in the same thread space and one
-    // person's conversations become another's.
-    identifyUser,
-    // The subclass, not the base: a thread nobody has run yet reads as empty rather than as a 500.
-    // See IntelligenceKnowingANewThread.
-    intelligence: intelligenceClient,
-    /*
-     * NO TITLE RUNS. On a thread's first run the runtime would name it by running the same Bot again
-     * on a title prompt, beside the person's run. On a harness that was a second run on the
-     * harness at the same moment as the first, on every first message: two `run-model` lines and two
-     * POSTs, with the person's answer garbled where the two overlapped. OpenBot names its
-     * conversations itself, after the fact and on its own model (`channels/summary.ts`), and that is
-     * the title people see. The runtime's name only ever reached a Learning proposal's evidence,
-     * whose title is optional and now empty for a conversation.
-     */
-    generateThreadNames: false,
-    licenseToken: intelligence.licenseToken,
-    // Carried on the events the runtime already sends, so OpenBot's traffic is separable from any
-    // other deployment's. Adds no events of its own.
-    telemetryProperties: {
-      app_id: "openbot",
-      ...options.productTelemetry?.deploymentProperties(),
-      ...(config.accessibility ? { accessibility_title: "OpenBot" } : {}),
-      ...desktopTelemetryProperties(),
+  const agents = createRequestAgents(identifyActor, resolver);
+
+  const handler = createCopilotHonoHandler({
+    runtime: { agents: agents as Record<string, import("@ag-ui/client").AbstractAgent> },
+    basePath,
+    cors: { origin: corsOrigin(config) },
+    hooks: {
+      onBeforeHandler: async (context) => {
+        const gated = await trajectoryCapture?.gate(context);
+        const prepared = options.productTelemetry
+          ? ((await productRuntimeHook(
+              options.productTelemetry,
+              identifyActor,
+            )({ ...context, request: gated ?? context.request })) ?? gated)
+          : gated;
+        return (
+          (await markAskedRun(prepared ?? context.request, context.route)) ??
+          prepared
+        );
+      },
     },
-    /*
-     * What lets a Bot answer with an interface it wrote itself.
-     *
-     * This one flag is the whole difference between a Bot that draws and a Bot that describes
-     * markup it cannot show. The middleware it turns on does not give the model the tool — the
-     * browser does that — it reads the arguments of the `generateSandboxedUi` call as they stream
-     * and re-emits them as `open-generative-ui` activity events. Those events are the only thing
-     * that paints: the tool's own renderer shows the waiting message and then returns nothing. So a
-     * deployment with the browser half and not this one has Bots generating whole interfaces that
-     * never appear, which is the shape this capability arrived in.
-     *
-     * `true` rather than a list of Bots. The list narrows only the event transform, and the tool
-     * stays offered to every Bot regardless, so naming some Bots here would leave the others able to
-     * call it and draw nothing. Whether the capability exists at all is the switch this deployment
-     * has; see DeploymentConfig.generativeUi.
-     */
-    ...(config.generativeUi ? { openGenerativeUI: true } : {}),
-    ...generativeUiMiddlewares(config.generativeUi),
-    /*
-     * Nothing the person's request carried is passed on to a Bot.
-     *
-     * Left unset, the runtime copies `authorization` and every `x-*` header from the request that
-     * started a run onto the agent it runs, and a remote Bot's agent is a POST to whatever address
-     * its author registered. Anyone allowed to publish a Bot can register their own, so a colleague
-     * signed in with an Entra bearer would hand that author a token OpenBot itself accepts.
-     *
-     * No Bot reads anything from the person's request. A Bot's key and the deployment's token are
-     * the Bot's own headers, set on the server when the Bot is loaded, and the signed run travels in
-     * the body, so all three still go. `authorization` and `x-` together are every header the runtime
-     * would forward. This is a denylist because the runtime's allowlist cannot be empty: `allow: []`
-     * is read as no allowlist at all, and forwards both.
-     */
-    forwardHeaders: { deny: ["authorization"], denyPrefixes: ["x-"] },
-    // `identifyUser` is the Intelligence projection of the same person `identifyActor` returns:
-    // one resolver decides both whose threads these are and whose coworkers exist.
-    agents: createRequestAgents(identifyActor, resolver) as never,
   });
 
-  /*
-   * A person's Stop on a browser run, as this server learns of it: Intelligence relays the Stop to
-   * the runtime's runner, which detaches the run's agent. Marked, so the run's product terminal reads
-   * cancelled rather than as a run that ended with no outcome. The runtime builds its runner itself
-   * and starts a run through `runWithStartupBoundary` where the runner has it, `run` otherwise, so
-   * each run's agent is observed at both as the runner is handed it.
-   */
+  const runner = new (await import("./agents/intelligence-runner").then(m => m.IntelligenceAgentRunner))({
+    url: intelligenceClient.ɵgetClientWsUrl(),
+  });
+
   const productTelemetry = options.productTelemetry;
   if (productTelemetry) {
-    type RunRequest = Parameters<typeof runtime.runner.run>[0];
-    const runner = runtime.runner as typeof runtime.runner & {
-      runWithStartupBoundary?: (request: RunRequest) => unknown;
-    };
-    const observed = (request: RunRequest) =>
+    const origRun = runner.run.bind(runner);
+    runner.run = (request) => {
       observeDetachedRun(
         request.agent,
         () => false,
         () => productTelemetry.markStopped(request.input.runId, "cancelled"),
       );
-    const run = runner.run.bind(runner);
-    runner.run = (request) => {
-      observed(request);
-      return run(request);
+      return origRun(request);
     };
-    const startup = runner.runWithStartupBoundary?.bind(runner);
-    if (startup)
-      runner.runWithStartupBoundary = (request) => {
-        observed(request);
-        return startup(request);
-      };
   }
 
-  if (options.decisionWaits)
-    watchDecisionWaits(runtime.runner, options.decisionWaits);
+  if (options.decisionWaits) {
+    watchDecisionWaits(runner, options.decisionWaits);
+  }
 
   return {
-    handler: createCopilotHonoHandler({
-      runtime,
-      basePath,
-      /*
-       * This deployment's own origins and the Recorder, and nobody else.
-       *
-       * Left out, the runtime answers `Access-Control-Allow-Origin: *` on every response and 204 to
-       * every preflight, so any website the person visited could read their threads and messages
-       * here. The app calls the runtime on its own origin and needs no CORS at all; the Recorder is
-       * an extension, which its host permission lets past CORS anyway, and is named so that stays
-       * true whatever Chrome decides. An origin it does not name gets no CORS headers and the
-       * browser keeps the answer from the page.
-       */
-      cors: { origin: corsOrigin(config) },
-      hooks: {
-        onBeforeHandler: async (context) => {
-          const gated = await trajectoryCapture?.gate(context);
-          const prepared = options.productTelemetry
-            ? ((await productRuntimeHook(
-                options.productTelemetry,
-                identifyActor,
-              )({ ...context, request: gated ?? context.request })) ?? gated)
-            : gated;
-          // Last, so nothing after it can drop the mark. See `isAskedRun`.
-          return (
-            (await markAskedRun(prepared ?? context.request, context.route)) ??
-            prepared
-          );
-        },
-      },
-    }),
+    handler,
     learning,
-    /**
-     * How to reach the platform's runner, exactly as the runtime reaches it.
-     *
-     * TAKEN FROM THE CLIENT, NOT FROM CONFIGURATION, and this is the whole of a bug that only a real
-     * gateway could show. Built from `gatewayWsUrl` and the deployment's API key, every join was
-     * refused with `active_lock_mismatch`: a thread's active run is a lock the platform issues, and
-     * the token that holds it is not the API key. The runtime asks the client for both, so anything
-     * else driving a run has to ask the same client the same way.
-     */
     runnerConnection: () => ({
-      url: intelligenceClient.ɵgetRunnerWsUrl(),
-      authToken: intelligenceClient.ɵgetRunnerAuthToken(),
+      url: intelligenceClient.ɵgetClientWsUrl(),
+      authToken: undefined,
     }),
     threadLock: createIntelligenceThreadLock({
       client: intelligenceClient,
       learning,
       onRunBusy,
     }),
-    /** A run's `recordStop` on this client, for a run this server drives itself. See run-stop.ts. */
     stopRecorder: (run: PlatformRun, holdsLock: () => boolean) =>
       stopRecorder(intelligenceClient, run, holdsLock),
     agentFor,
-    /**
-     * A thread's messages, as the platform holds them.
-     *
-     * The same client the runtime uses, so a hop reads the history a person's run would read rather
-     * than a second view of it that could disagree.
-     */
     history: async (input: { threadId: string; actorId: string }) => {
-      /*
-       * The platform's own message type rather than AG-UI's, inferred rather than named: the two are
-       * compatible where it matters and naming the wrong one here would mean converting a history
-       * that does not need converting.
-       */
       type Read = Awaited<
         ReturnType<CopilotKitIntelligence["getThreadMessages"]>
       >;

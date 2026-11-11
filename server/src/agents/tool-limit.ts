@@ -1,4 +1,4 @@
-import { resolveModel } from "@copilotkit/runtime/v2";
+import { resolveModel } from "@openbot/noma-runtime";
 import { MODEL_TOOL_LIMIT } from "@openbot/shared/model-tool-limit";
 import {
   type AuditInitiator,

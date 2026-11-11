@@ -1,5 +1,5 @@
 import type { Message } from "@ag-ui/client";
-import { createSafeUrlDownload } from "@copilotkit/runtime/v2";
+import { createSafeUrlDownload } from "@openbot/noma-runtime";
 import {
   ACCEPTED_IMAGE_MIME,
   MAX_IMAGE_BYTES,

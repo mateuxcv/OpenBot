@@ -2,7 +2,7 @@ import {
   type BuiltInAgentClassicConfig,
   type BuiltInAgentConfiguration,
   resolveModel,
-} from "@copilotkit/runtime/v2";
+} from "@openbot/noma-runtime";
 import { openParts } from "@openbot/shared/routine-checklist";
 import {
   LAST_STEP_NOTICE,

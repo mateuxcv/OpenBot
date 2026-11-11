@@ -7,8 +7,8 @@ import {
   SkillRegistry,
   type SnapshotSkill,
   type VerifiedSnapshot,
-} from "@copilotkit/runtime/internal/learned-skills";
-import type { CopilotKitIntelligence } from "@copilotkit/runtime/v2";
+} from "@openbot/noma-runtime";
+import type { NomaIntelligenceClient as CopilotKitIntelligence } from "@openbot/noma-intelligence/factory";
 import type {
   LearnedSkillContent,
   LearningDeliveryStatus,

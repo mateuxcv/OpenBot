@@ -1,7 +1,7 @@
 import {
-  type CopilotKitIntelligence,
+  type NomaIntelligenceClient as CopilotKitIntelligence,
   PlatformRequestError,
-} from "@copilotkit/runtime/v2";
+} from "@openbot/noma-intelligence/factory";
 
 /**
  * Asking Intelligence a question whose "no" is an ordinary answer, without the runtime client printing the "no".

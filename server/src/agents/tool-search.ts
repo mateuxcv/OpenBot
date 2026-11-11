@@ -1,4 +1,4 @@
-import type { BuiltInAgentClassicConfig } from "@copilotkit/runtime/v2";
+import type { BuiltInAgentClassicConfig } from "@openbot/noma-runtime";
 import { MODEL_TOOL_LIMIT } from "@openbot/shared/model-tool-limit";
 import {
   SEARCH_TOOLS,

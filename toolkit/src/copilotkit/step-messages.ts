@@ -2,7 +2,7 @@ import {
   type BuiltInAgentClassicConfig,
   type BuiltInAgentConfiguration,
   resolveModel,
-} from "@copilotkit/runtime/v2";
+} from "@openbot/noma-runtime";
 
 // The model contract of the runtime we ship, as `last-step.ts` reads it.
 type Model = Extract<
