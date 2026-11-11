@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { CopilotKitIntelligence } from "@copilotkit/runtime/v2";
+import type { NomaIntelligenceClient } from "@openbot/noma-intelligence/factory";
 import type { LearningSettings } from "@openbot/shared/learning";
 import type { LearningSpaceState } from "@openbot/shared/recorder-api";
 import { eq } from "drizzle-orm";
@@ -134,7 +134,7 @@ function until<T>(promise: Promise<T>, signal?: AbortSignal) {
 export function createPersonalLearningSpaces(deps: {
   readSettings: () => Promise<LearningSettings>;
   /** The runtime key's client, for the skills read that proves a container exists. */
-  snapshots: Pick<CopilotKitIntelligence, "getLearnedSkillsSnapshot">;
+  snapshots: Pick<NomaIntelligenceClient & import("@openbot/noma-intelligence/learning").NomaSkillsClient, "getLearnedSkillsSnapshot">;
   store: PersonSpaceStore;
   /** Creates a container with a credential that can; absent when this deployment holds none. */
   create?: (

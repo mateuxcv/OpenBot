@@ -1,7 +1,12 @@
-import type {
-  CopilotRuntimeHooks,
-  GetTrajectoryLearningContainerIds,
-} from "@copilotkit/runtime/v2";
+/** Subset of CopilotRuntimeHooks — redefined locally to remove @copilotkit/runtime dependency. */
+type CopilotRuntimeHooks = {
+  onBeforeHandler?: (ctx: {
+    request: Request;
+    route: { method: string; [key: string]: unknown };
+  }) => Promise<Request | undefined> | undefined;
+};
+/** Subset of GetTrajectoryLearningContainerIds — redefined locally. */
+type GetTrajectoryLearningContainerIds = (trajectoryId: string) => Promise<string[]>;
 import { eq } from "drizzle-orm";
 import type { AuditStore } from "../audit";
 import type { AuthenticatedActor, RoleRepository } from "../auth/guards";

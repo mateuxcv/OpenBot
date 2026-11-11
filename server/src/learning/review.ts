@@ -1,24 +1,11 @@
-import type { CopilotKitIntelligence } from "@copilotkit/runtime/v2";
-import type {
-  LearningEvidence,
-  LearningProposal,
-  LearningProposalDetail,
-  LearningRunSummary,
-} from "@openbot/shared/learning";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
-import type { LearningModelCalls } from "./model-endpoint";
+import {
+  createNomaLearningManagement,
+  type NomaLearningManagement,
+  type NomaSkillsClient,
+} from "@openbot/noma-intelligence/learning";
 
 /** The runtime key's own Learning routes: a project's containers, runs and proposed Skills. */
-export type LearningManagement = Pick<
-  CopilotKitIntelligence["experimental"]["learning"],
-  | "getLearningContainer"
-  | "listLearningRuns"
-  | "startLearningRun"
-  | "listLearningCandidates"
-  | "getLearningCandidate"
-  | "getLearningInsightEvidence"
-  | "reviewLearningCandidate"
->;
+export type LearningManagement = NomaLearningManagement;
 
 /** The HTTP status and Intelligence error code a Learning request failed with. */
 export function requestFailure(error: unknown): {

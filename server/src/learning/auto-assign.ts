@@ -1,4 +1,4 @@
-import { CopilotKitIntelligence } from "@copilotkit/runtime/v2";
+import type { NomaSkillsClient } from "@openbot/noma-intelligence/learning";
 import {
   AUTOMATIC_LEARNING_CONTAINER_ID,
   type LearningAutoAssignState,
@@ -94,10 +94,10 @@ const UNNAMED_REFUSALS = new Set([
  * Intelligence's own code: Learning switched off, a missing container, or Learning not licensed.
  */
 export async function probeLearningContainer(
-  client: Pick<CopilotKitIntelligence, "getLearnedSkillsSnapshot"> & {
+  client: NomaSkillsClient & {
     experimental?: {
       learning: Pick<
-        CopilotKitIntelligence["experimental"]["learning"],
+        import("@openbot/noma-intelligence/learning").NomaLearningManagement,
         "getLearningContainer"
       >;
     };
