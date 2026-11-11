@@ -1,10 +1,10 @@
 import { createHash, createHmac } from "node:crypto";
 import type { MiddlewareFunction, RunAgentInput } from "@ag-ui/client";
 import {
-  isTelemetryDisabled,
-  type LambdaSendOptions,
-  lambdaClient,
-} from "@copilotkit/shared";
+  productTelemetryEnabled,
+  sendTelemetryEvent,
+  type TelemetrySendOptions as LambdaSendOptions,
+} from "./sender";
 import { defer, finalize, switchMap, tap } from "rxjs";
 import { z } from "zod";
 import type { AuditInitiator, AuditTapEvent } from "../audit";
@@ -106,18 +106,7 @@ export function parseConsumption(value: unknown): ProductConsumption | null {
 export function productExportEnabled(
   env: Record<string, string | undefined>,
 ): boolean {
-  if (
-    [env.DO_NOT_TRACK, env.COPILOTKIT_TELEMETRY_DISABLED].some(
-      (value) => value === "1" || value === "true",
-    )
-  )
-    return false;
-  if (env.OPENBOT_PRODUCT_TELEMETRY !== undefined)
-    return (
-      env.OPENBOT_PRODUCT_TELEMETRY === "1" ||
-      env.OPENBOT_PRODUCT_TELEMETRY === "true"
-    );
-  return env.OPENBOT_DISTRIBUTION === "desktop";
+  return productTelemetryEnabled(env);
 }
 /** Reuses the deployment's existing required encryption key; no telemetry identity is created. */
 export function scopedProductUser(
@@ -294,8 +283,7 @@ export async function createProductTelemetry(options: {
 }) {
   const env = options.env ?? process.env;
   const enabled =
-    productExportEnabled(env) &&
-    !(env === process.env && isTelemetryDisabled());
+    productTelemetryEnabled(env);
   const candidate = options.deploymentId ?? env.CPK_TELEMETRY_ID;
   const deploymentId = boundedId.safeParse(candidate).success
     ? (candidate ?? "unknown")
@@ -355,7 +343,7 @@ export async function createProductTelemetry(options: {
     const eventId = stableId(`${deploymentId}:${key}`);
     const send = Promise.resolve()
       .then(() =>
-        (options.send ?? lambdaClient.send)({
+        (options.send ?? sendTelemetryEvent)({
           event: `oss.runtime.openbot.${name}`,
           properties: {
             schema_version: 1,

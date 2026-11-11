@@ -1,4 +1,3 @@
-import type { CopilotRuntimeHooks } from "@copilotkit/runtime/v2";
 import type { createTurnRunner, TurnRunner } from "@openbot/toolkit/run-turn";
 import type { IdentifyActor } from "../copilot";
 import type { DeliveryInbox } from "../delivery/types";
@@ -10,10 +9,16 @@ import {
   triggerForInitiator,
 } from "./product";
 
+/** Subset of CopilotRuntimeHooks used by OpenBot — redefined locally to avoid @copilotkit/runtime import. */
+type BeforeHandlerHook = (ctx: {
+  request: Request;
+  route: { method: string };
+}) => Promise<Request | undefined> | undefined;
+
 export function productRuntimeHook(
   telemetry: ProductTelemetry,
   identifyActor: IdentifyActor,
-): NonNullable<CopilotRuntimeHooks["onBeforeHandler"]> {
+): BeforeHandlerHook {
   return ({ request, route }) =>
     route.method === "agent/run"
       ? prepareProductRequest(telemetry, identifyActor, request)
