@@ -46,14 +46,52 @@ export function createNomaHonoHandler(
   }
 
   // GET /info — advertise which agents this runtime serves.
-  app.get("/info", (c) => {
-    return c.json({
-      agents: Object.keys(runtime.agents).map((id) => ({
+  // Also responds at /api/copilotkit/info as expected by @copilotkit/react-core.
+  const infoHandler = (c: Parameters<Parameters<typeof app.get>[1]>[0]) => {
+    const agentsDict = Object.fromEntries(
+      Object.keys(runtime.agents).map((id) => [
         id,
-        description: runtime.agents[id]?.description ?? "",
-      })),
+        {
+          name: id,
+          description: runtime.agents[id]?.description ?? "",
+          className: "BuiltInAgent",
+        },
+      ]),
+    );
+    return c.json({
+      version: "1.85.0",
+      agents: agentsDict,
+      mode: "intelligence",
+      audioFileTranscriptionEnabled: false,
+      threadEndpoints: {
+        list: true,
+        inspect: true,
+        mutations: true,
+        realtimeMetadata: true,
+      },
+      suggestions: true,
+      intelligence: {
+        wsUrl: `ws://localhost:${new URL(c.req.url).port || "3001"}/api/noma/gateway`,
+      },
+      a2uiEnabled: false,
+      openGenerativeUIEnabled: true,
+      licenseStatus: "valid",
+      runtimeEntitlements: {
+        status: "ready",
+        entitlement: {
+          active: true,
+          planCode: "team_self_hosted",
+          source: "noma",
+          features: { memory: true, learning: true },
+        },
+      },
+      telemetryDisabled: true,
     });
-  });
+  };
+
+  app.get("/info", infoHandler);
+  app.get("/api/copilotkit/info", infoHandler);
+  app.post("/api/copilotkit", (c) => c.json({ ok: true }));
 
   // POST /agent/:agentId/run — execute an agent and stream AG-UI events.
   app.post("/agent/:agentId/run", async (c) => {

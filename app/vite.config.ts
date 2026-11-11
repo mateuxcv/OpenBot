@@ -76,6 +76,7 @@ const apiPort = listenPort(process.env.SERVER_PORT, 3001);
 if (!apiPort.ok) {
   throw new Error(apiPort.reason.replace(/^PORT /, "SERVER_PORT "));
 }
+const apiHost = process.env.SERVER_HOST?.trim() || "localhost";
 
 /**
  * Only this machine, unless the deployment names an address beyond it (`appListenHosts`).
@@ -126,10 +127,10 @@ const serving = {
   port: appPort.port,
   strictPort: true,
   proxy: {
-    "/api": {
-      target: `http://localhost:${apiPort.port}`,
+      "/api": {
+        target: `http://${apiHost}:${apiPort.port}`,
+      },
     },
-  },
 };
 
 type RouteSplitGroupings = Array<

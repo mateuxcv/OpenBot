@@ -581,8 +581,6 @@ export function createApp(
   app.route("/", createReleaseStatusRoutes());
 
   // Noma Intelligence entitlements — always ready, always active.
-  // This endpoint satisfies the boot check in intelligence-entitlement-check.ts
-  // and the runtimeEntitlementStatus call in intelligence-client.ts.
   app.get("/api/entitlements/runtime", (context) =>
     context.json({
       status: "ready",
