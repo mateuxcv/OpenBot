@@ -7,6 +7,7 @@
  */
 
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 
@@ -73,6 +74,24 @@ export function resolveModel(
           : {}),
       });
       return client(model);
+    }
+
+    case "bedrock": {
+      const bedrock = createAmazonBedrock({
+        region: process.env.AWS_REGION ?? "us-east-1",
+        ...(process.env.AWS_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY
+          ? {
+              accessKeyId:
+                process.env.AWS_ACCESS_KEY_ID ?? process.env.AWS_ACCESS_KEY,
+              secretAccessKey:
+                process.env.AWS_SECRET_ACCESS_KEY ?? process.env.AWS_SECRET_KEY,
+            }
+          : {}),
+        ...(process.env.AWS_BEARER_TOKEN_BEDROCK
+          ? { bedrockAuthToken: process.env.AWS_BEARER_TOKEN_BEDROCK }
+          : {}),
+      });
+      return bedrock(model);
     }
 
     case "google": {
