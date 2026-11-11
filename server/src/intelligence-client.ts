@@ -2,6 +2,7 @@ import {
   PlatformRequestError,
   type NomaIntelligenceClient,
 } from "@openbot/noma-intelligence/factory";
+import { createNomaLearningManagement } from "@openbot/noma-intelligence/learning";
 import { IntelligenceKnowingANewThread } from "@openbot/toolkit/copilotkit/agents";
 import type { IntelligenceSettings } from "./config";
 import {
@@ -154,14 +155,27 @@ export async function runtimeEntitlementStatus(
  * de construir uma nova — Noma não tem custo de socket como o CopilotKit, mas
  * manter uma única instância simplifica testes e evita state duplicado.
  */
+export type IntelligenceClientWithExperimental = NomaIntelligenceClient & {
+  experimental: {
+    learning: ReturnType<typeof createNomaLearningManagement>;
+  };
+};
+
 export function createIntelligenceClient(
   settings: IntelligenceSettings,
-): NomaIntelligenceClient {
-  return observeIntelligenceAuthentication(
+): IntelligenceClientWithExperimental {
+  const base = observeIntelligenceAuthentication(
     new IntelligenceKnowingANewThread({
       apiUrl: settings.apiUrl,
       wsUrl: settings.gatewayWsUrl,
       apiKey: settings.apiKey,
     }),
   );
+  const learning = createNomaLearningManagement({
+    apiUrl: settings.apiUrl,
+    apiKey: settings.apiKey,
+  });
+  return Object.assign(base, {
+    experimental: { learning },
+  });
 }

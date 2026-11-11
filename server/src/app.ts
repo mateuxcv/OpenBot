@@ -579,6 +579,21 @@ export function createApp(
 
   app.get("/health", (context) => context.json({ status: "ok" }));
   app.route("/", createReleaseStatusRoutes());
+
+  // Noma Intelligence entitlements — always ready, always active.
+  // This endpoint satisfies the boot check in intelligence-entitlement-check.ts
+  // and the runtimeEntitlementStatus call in intelligence-client.ts.
+  app.get("/api/entitlements/runtime", (context) =>
+    context.json({
+      status: "ready",
+      entitlement: {
+        active: true,
+        planCode: "team_self_hosted",
+        source: "noma",
+        features: { memory: true, learning: true },
+      },
+    }),
+  );
   // The public key Bots' browsers sign their requests with, where Cloudflare and any other verifier
   // look for it. Public by design, and absent when Web Bot Auth is off. See web-bot-auth.ts.
   const webBotAuth = config.webBotAuth;

@@ -9,6 +9,7 @@ import {
   resolveModel,
 } from "@openbot/noma-runtime";
 import { createNomaHonoHandler as createCopilotHonoHandler } from "@openbot/noma-runtime";
+import { IntelligenceAgentRunner } from "./agents/intelligence-runner.ts";
 import {
   type ComputerGuidance,
   frameworkGuidance,
@@ -3137,7 +3138,7 @@ export function mountCopilotRuntime(
     },
   });
 
-  const runner = new (await import("./agents/intelligence-runner").then(m => m.IntelligenceAgentRunner))({
+  const runner = new IntelligenceAgentRunner({
     url: intelligenceClient.ɵgetClientWsUrl(),
   });
 

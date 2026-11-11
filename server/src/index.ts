@@ -1,5 +1,7 @@
 import type { AbstractAgent } from "@ag-ui/client";
 import type { NomaIntelligenceClient as CopilotKitIntelligence } from "@openbot/noma-intelligence/factory";
+import { IntelligenceKnowingANewThread } from "@openbot/toolkit/copilotkit/agents";
+import { IntelligenceAgentRunner } from "./agents/intelligence-runner.ts";
 import { computerGuidance } from "@openbot/shared/bot-prompt";
 import { isPersonBrowserId } from "@openbot/shared/openbot-browser";
 import { workOwner } from "@openbot/shared/work-owner";
@@ -898,7 +900,7 @@ const readWhatIfQuestions = createModelCompleter({
  * already-running check that keeps two turns off one thread. See `toolkit/run-turn.ts`.
  */
 const routineIntelligence = observeIntelligenceAuthentication(
-  new CopilotKitIntelligence({
+  new IntelligenceKnowingANewThread({
     apiUrl: config.runtime.intelligence.apiUrl,
     wsUrl: config.runtime.intelligence.gatewayWsUrl,
     apiKey: config.runtime.intelligence.apiKey,
@@ -2125,8 +2127,7 @@ const buildAgentFor = async ({
   return agent;
 };
 const routineAgentRunner = new IntelligenceAgentRunner({
-  url: routineIntelligence.ɵgetRunnerWsUrl(),
-  authToken: routineIntelligence.ɵgetRunnerAuthToken(),
+  url: routineIntelligence.ɵgetClientWsUrl(),
 });
 
 const routineRunner = createRoutineRunner({
