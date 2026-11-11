@@ -10,6 +10,7 @@
     "worker",
     "shared",
     "toolkit",
+    "noma-intelligence",
     "extension"
   ],
   "scripts": {

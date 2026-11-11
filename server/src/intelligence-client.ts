@@ -1,7 +1,7 @@
 import {
-  type CopilotKitIntelligence,
   PlatformRequestError,
-} from "@copilotkit/runtime/v2";
+  type NomaIntelligenceClient,
+} from "@openbot/noma-intelligence/factory";
 import { IntelligenceKnowingANewThread } from "@openbot/toolkit/copilotkit/agents";
 import type { IntelligenceSettings } from "./config";
 import {
@@ -11,18 +11,14 @@ import {
 import { transientStatus } from "./intelligence-startup";
 
 /**
- * The runtime entitlement read, held back until Intelligence has answered it once.
+ * O status HTTP que a Noma responde ao entitlement check, pedido sem o cliente
+ * de runtime (que imprimiria todo falha no console antes de lançar).
  *
- * The runtime client prints every failed entitlement read to the console as a multi-line object
- * before it throws, and it is read from many places: the boot check, the setup checklist (at boot
- * and on reads), the self-host banner, memory, and the runtime's own `/info`. While an Intelligence
- * installed beside this server is still starting (intelligence-startup.ts) every one of those reads
- * fails, so until a read has been answered 200, each first asks whether Intelligence answers, with a
- * bare request that prints nothing (`runtimeEntitlementStatus`), and fails as the client would have,
- * with the same `PlatformRequestError`, when it does not. From the first 200 on, reads go straight
- * to the client, and a failure after that is a real one the client is right to print.
+ * Noma responde sempre 200 — não há licença proprietária a verificar.
+ * A função ainda existe para manter o mesmo fluxo de boot que o OpenBot original
+ * usava com o CopilotKit Intelligence.
  */
-function quietUntilAnswered(client: CopilotKitIntelligence) {
+function quietUntilAnswered(client: NomaIntelligenceClient) {
   let answered = false;
   let asking: Promise<void> | undefined;
   const ask = async () => {
@@ -49,7 +45,6 @@ function quietUntilAnswered(client: CopilotKitIntelligence) {
   };
   return async (read: () => unknown): Promise<unknown> => {
     if (!answered) {
-      // Concurrent reads share one question.
       asking ??= ask().finally(() => {
         asking = undefined;
       });
@@ -59,15 +54,14 @@ function quietUntilAnswered(client: CopilotKitIntelligence) {
   };
 }
 
-/** Observe the SDK's typed HTTP errors before runtime handlers turn them into generic 500s. */
+/** Observa erros de autenticação antes que handlers genéricos os transformem em 500. */
 export function observeIntelligenceAuthentication<
-  T extends CopilotKitIntelligence,
+  T extends NomaIntelligenceClient,
 >(client: T): T {
   const methods = new Map<PropertyKey, (...args: unknown[]) => unknown>();
   const quiet = quietUntilAnswered(client);
   return new Proxy(client, {
     get(target, property) {
-      // Both getters and methods must keep the original receiver: the SDK owns #private fields.
       const value: unknown = Reflect.get(target, property, target);
       if (typeof value !== "function" || property === "constructor")
         return value;
@@ -81,7 +75,6 @@ export function observeIntelligenceAuthentication<
         if (!(result instanceof Promise)) return result;
         return result.then(
           (response: unknown) => {
-            // Entitlements may be cached; optional Inspector reads can succeed without authentication.
             if (
               property !== "getRuntimeEntitlements" &&
               property !== "getInspectorMetadata"
@@ -91,12 +84,10 @@ export function observeIntelligenceAuthentication<
             return response;
           },
           (error: unknown) => {
-            // A 403 can be a permissions or entitlement decision. Only rejected authentication
-            // asks for a new credential, and only at this trusted Intelligence client boundary.
             if (
               error instanceof Error &&
               "status" in error &&
-              error.status === 401
+              (error as { status?: unknown }).status === 401
             ) {
               recordDesktopConnectionFailure({
                 connection: "intelligence",
@@ -114,14 +105,11 @@ export function observeIntelligenceAuthentication<
 }
 
 /**
- * The HTTP status Intelligence answers the runtime entitlement read with, asked without the runtime
- * client, which is still what reads the answer itself.
+ * Status HTTP do entitlement endpoint.
  *
- * The client prints every failed read to the console as a multi-line object before it throws
- * (`logger.error({ status, path }, "Runtime entitlement request failed")`, and its logger is
- * `console`). That is right for a read that should have worked, and wrong for the reads expected to
- * fail while Intelligence is still starting: `quietUntilAnswered` asks this first. Rejects, marked
- * `retryable`, when nothing answered at all. A 401 is observed here as the client's would be.
+ * Com Noma, o endpoint local responde sempre 200. A função é mantida para
+ * não quebrar o fluxo de boot (intelligence-entitlement-check.ts usa este status
+ * para decidir se Intelligence ainda está iniciando).
  */
 export async function runtimeEntitlementStatus(
   settings: Pick<IntelligenceSettings, "apiUrl" | "apiKey">,
@@ -159,25 +147,16 @@ export async function runtimeEntitlementStatus(
 }
 
 /**
- * A client through which this deployment can ask Intelligence a question of its own.
+ * Instância do cliente Noma para consultas fora de um run (ex.: verificar
+ * se um thread ainda existe).
  *
- * The runtime already holds one of these, built where it is mounted, and everything a conversation
- * does goes through that. This is for the questions OpenBot asks on its own account rather than on
- * a run's: whether a thread the browser remembers is still there, and whatever else later needs an
- * answer from the platform outside a turn.
- *
- * A second instance rather than a shared one, deliberately. The constructor stores its settings and
- * opens nothing — no socket, no handshake, no pool — so the cost is an object, while reaching into
- * the runtime for the client it built would tie this to the mounting order of a module that has no
- * other reason to care. The settings both read come from one place, which is the part that has to
- * agree.
- *
- * The same class as the runtime's, so a question whose "no" is ordinary (a thread the browser
- * remembers that is gone) is answered without the base client printing the "no" as a failure.
+ * Recebe a instância global de NomaIntelligence (criada em index.ts) em vez
+ * de construir uma nova — Noma não tem custo de socket como o CopilotKit, mas
+ * manter uma única instância simplifica testes e evita state duplicado.
  */
 export function createIntelligenceClient(
   settings: IntelligenceSettings,
-): CopilotKitIntelligence {
+): NomaIntelligenceClient {
   return observeIntelligenceAuthentication(
     new IntelligenceKnowingANewThread({
       apiUrl: settings.apiUrl,

@@ -1,21 +1,14 @@
-import type { CopilotKitIntelligence } from "@copilotkit/runtime/v2";
+import type { NomaIntelligenceClient } from "@openbot/noma-intelligence/factory";
 import type { ThreadLock } from "../ports";
 
 /**
  * How long a conversation's lock is held before it lapses on its own.
- *
- * Matches the platform's own default rather than picking a number: this is renewed while a Bot works,
- * so what it really sets is how long a conversation stays stuck after a process dies mid-run.
- *
- * Advisory today: the platform applies its own fixed 120 seconds on acquire and renew whatever is
- * asked for (`THREAD_LOCK_TTL_SECONDS` in Intelligence's `apps/app-api/src/routes/thread-lock.ts`).
- * See `TURN_LIMITS` in `@openbot/toolkit/limits` for the headless turn's side of the same lock.
  */
 export const THREAD_LOCK_TTL_SECONDS = 120;
 
 /** The four platform calls the lock makes, and nothing else of the client. */
 export type ThreadLockClient = Pick<
-  CopilotKitIntelligence,
+  NomaIntelligenceClient,
   | "getOrCreateThread"
   | "ɵacquireThreadLock"
   | "ɵrenewThreadLock"

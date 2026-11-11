@@ -1,9 +1,7 @@
-import type { CopilotKitIntelligence } from "@copilotkit/runtime/v2";
+import type { RuntimeEntitlementResponse as NomaEntitlementResponse } from "@openbot/noma-intelligence/factory";
 
-/** What Intelligence says this deployment is entitled to. Typed from the client OpenBot already uses. */
-export type RuntimeEntitlementResponse = Awaited<
-  ReturnType<CopilotKitIntelligence["getRuntimeEntitlements"]>
->;
+/** What Intelligence says this deployment is entitled to. */
+export type RuntimeEntitlementResponse = NomaEntitlementResponse;
 
 /**
  * The Intelligence plans that pay for it.

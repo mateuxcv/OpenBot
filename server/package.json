@@ -27,6 +27,7 @@
     "@mastra/client-js": "^1.43.0",
     "@mastra/core": "^1.64.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@openbot/noma-intelligence": "workspace:*",
     "@openbot/shared": "workspace:*",
     "@openbot/toolkit": "workspace:*",
     "@opentelemetry/api-logs": "0.221.0",

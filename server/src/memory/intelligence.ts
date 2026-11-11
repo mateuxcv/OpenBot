@@ -1,11 +1,10 @@
-import type { CopilotKitIntelligence } from "@copilotkit/runtime/v2";
+import type { NomaIntelligenceClient } from "@openbot/noma-intelligence/factory";
 
 /**
- * The slice of the Intelligence client memory needs. Typed from the client OpenBot already uses, so a
- * test can hand in a fake without standing up the platform.
+ * The slice of the Intelligence client memory needs.
  */
 export type IntelligenceMemoryClient = Pick<
-  CopilotKitIntelligence,
+  NomaIntelligenceClient,
   | "getRuntimeEntitlements"
   | "listMemories"
   | "createMemory"

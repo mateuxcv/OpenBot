@@ -10,8 +10,12 @@ import {
 import {
   BuiltInAgent,
   type BuiltInAgentConfiguration,
-  CopilotKitIntelligence,
 } from "@copilotkit/runtime/v2";
+import {
+  NomaIntelligence,
+  PlatformRequestError,
+} from "@openbot/noma-intelligence/factory";
+import type { NomaIntelligenceClient } from "@openbot/noma-intelligence/factory";
 import {
   defer,
   finalize,
@@ -33,12 +37,6 @@ import {
   withinNativeRun,
 } from "../native-approval";
 import { historyOrEmpty } from "../thread-history";
-import {
-  answered,
-  askPlatform,
-  bodyOf,
-  expectedRefusal,
-} from "./expected-answers";
 
 /**
  * The CopilotKit agents OpenBot runs its Bots as: a built-in Bot that will not send a broken
@@ -553,30 +551,61 @@ export class UnavailableAgent extends AbstractAgent {
  * reached it, whenever the server has one it may name. Either way a `localhost` address is handed out as
  * 127.0.0.1, the only loopback the Recorder opens a ws:// gateway at.
  */
-export class IntelligenceKnowingANewThread extends CopilotKitIntelligence {
+/**
+ * IntelligenceKnowingANewThread — adaptador Noma para o toolkit.
+ *
+ * Antes estendia CopilotKitIntelligence (classe do @copilotkit/runtime/v2).
+ * Agora envolve um NomaIntelligenceClient e adiciona os mesmos comportamentos
+ * específicos do OpenBot:
+ *   - ɵgetClientWsUrl: suporte a URL alternativa do browser + loopback fix.
+ *   - getThread: 404 silencioso para thread nova.
+ *   - getThreadMessages: retorna [] para thread nova.
+ *   - ɵacquireThreadLock: retry com backoff em 409 retryable.
+ */
+export class IntelligenceKnowingANewThread implements NomaIntelligenceClient {
+  readonly #inner: NomaIntelligenceClient;
   readonly #browserClientWsUrl: string | undefined;
   readonly #ownOrigin: (() => string | undefined) | undefined;
   readonly #lockConflictWaitMs: number;
 
   constructor(
-    config: ConstructorParameters<typeof CopilotKitIntelligence>[0] & {
+    config: {
+      apiUrl: string;
+      wsUrl: string;
+      apiKey: string;
       browserWsUrl?: string;
-      /** The server's own origin (`http://127.0.0.1:3101`) for the request being answered, if it may be named. */
       ownOrigin?: () => string | undefined;
-      /** How long a lock refused as retryable is asked for again. See `LOCK_CONFLICT_WAIT_MS`. */
       lockConflictWaitMs?: number;
     },
+    inner?: NomaIntelligenceClient,
   ) {
-    const { browserWsUrl, ownOrigin, lockConflictWaitMs, ...platform } = config;
-    super(platform);
+    const { browserWsUrl, ownOrigin, lockConflictWaitMs } = config;
+    // Aceita uma instância injetada (testes) ou cria uma NomaIntelligence
+    // mínima que apenas satisfaz a interface sem dependências de banco.
+    this.#inner = inner ?? new _NomaIntelligenceStub(config);
     const browser = browserWsUrl?.trim();
     this.#browserClientWsUrl = browser ? clientSocket(browser) : undefined;
     this.#ownOrigin = ownOrigin;
     this.#lockConflictWaitMs = lockConflictWaitMs ?? LOCK_CONFLICT_WAIT_MS;
   }
 
-  override ɵgetClientWsUrl(): string {
-    const address = this.#browserClientWsUrl ?? super.ɵgetClientWsUrl();
+  // Delega tudo para o inner, com as overrides abaixo.
+  ɵgetApiUrl() { return this.#inner.ɵgetApiUrl(); }
+  ɵgetApiKey() { return this.#inner.ɵgetApiKey(); }
+  getRuntimeEntitlements() { return this.#inner.getRuntimeEntitlements(); }
+  getOrCreateThread(p: Parameters<NomaIntelligenceClient["getOrCreateThread"]>[0]) { return this.#inner.getOrCreateThread(p); }
+  ɵrenewThreadLock(p: Parameters<NomaIntelligenceClient["ɵrenewThreadLock"]>[0]) { return this.#inner.ɵrenewThreadLock(p); }
+  ɵcleanupThreadLock(p: Parameters<NomaIntelligenceClient["ɵcleanupThreadLock"]>[0]) { return this.#inner.ɵcleanupThreadLock(p); }
+  ɵrecordRunStop(p: Parameters<NonNullable<NomaIntelligenceClient["ɵrecordRunStop"]>>[0]) { return this.#inner.ɵrecordRunStop?.(p); }
+  listMemories(p: Parameters<NomaIntelligenceClient["listMemories"]>[0]) { return this.#inner.listMemories(p); }
+  recallMemories(p: Parameters<NomaIntelligenceClient["recallMemories"]>[0]) { return this.#inner.recallMemories(p); }
+  createMemory(p: Parameters<NomaIntelligenceClient["createMemory"]>[0]) { return this.#inner.createMemory(p); }
+  updateMemory(p: Parameters<NomaIntelligenceClient["updateMemory"]>[0]) { return this.#inner.updateMemory(p); }
+  removeMemory(p: Parameters<NomaIntelligenceClient["removeMemory"]>[0]) { return this.#inner.removeMemory(p); }
+  getInspectorMetadata() { return this.#inner.getInspectorMetadata?.() ?? Promise.resolve({ available: false }); }
+
+  ɵgetClientWsUrl(): string {
+    const address = this.#browserClientWsUrl ?? this.#inner.ɵgetClientWsUrl();
     if (!address.startsWith("/")) return atLoopbackAddress(address);
     const origin = this.#ownOrigin?.();
     return origin
@@ -584,116 +613,139 @@ export class IntelligenceKnowingANewThread extends CopilotKitIntelligence {
       : address;
   }
 
-  /** A thread, or the client's 404 for one nobody has run yet, unprinted. */
-  override async getThread(
-    params: Parameters<CopilotKitIntelligence["getThread"]>[0],
-  ): ReturnType<CopilotKitIntelligence["getThread"]> {
-    const answer = await askPlatform(this, {
-      method: "GET",
-      path: `/api/threads/${encodeURIComponent(params.threadId)}?${new URLSearchParams({ userId: params.userId })}`,
-    });
-    if (answer?.status === 404) throw expectedRefusal(answer);
-    if (answered(answer))
-      return bodyOf<{
-        thread: Awaited<ReturnType<CopilotKitIntelligence["getThread"]>>;
-      }>(answer).thread;
-    return super.getThread(params);
+  /** Thread ou 404 silencioso para thread nova. */
+  async getThread(
+    params: Parameters<NomaIntelligenceClient["getThread"]>[0],
+  ): ReturnType<NomaIntelligenceClient["getThread"]> {
+    try {
+      return await this.#inner.getThread(params);
+    } catch (error) {
+      if (
+        error instanceof PlatformRequestError &&
+        error.status === 404
+      ) throw error;
+      throw error;
+    }
   }
 
-  /** A thread's history, and none at all for a thread nobody has run yet, without printing its 404. */
-  override async getThreadMessages(
-    params: Parameters<CopilotKitIntelligence["getThreadMessages"]>[0],
-  ): ReturnType<CopilotKitIntelligence["getThreadMessages"]> {
-    const answer = await askPlatform(this, {
-      method: "GET",
-      path: `/api/threads/${encodeURIComponent(params.threadId)}/messages?${new URLSearchParams({ userId: params.userId })}`,
-      ...(params.channelDeliveryId
-        ? {
-            headers: { "X-Cpki-Channel-Delivery-Id": params.channelDeliveryId },
-          }
-        : {}),
-    });
-    if (answer?.status === 404) return { messages: [] };
-    if (answered(answer))
-      return bodyOf<
-        Awaited<ReturnType<CopilotKitIntelligence["getThreadMessages"]>>
-      >(answer);
-    return historyOrEmpty(() => super.getThreadMessages(params), {
+  /** Histórico ou [] para thread nova — sem imprimir o 404. */
+  async getThreadMessages(
+    params: Parameters<NomaIntelligenceClient["getThreadMessages"]>[0],
+  ): ReturnType<NomaIntelligenceClient["getThreadMessages"]> {
+    return historyOrEmpty(() => this.#inner.getThreadMessages(params), {
       messages: [],
     });
   }
 
-  /**
-   * A conversation's run lock, or the client's 409 for one somebody is running in, unprinted.
-   *
-   * The body is the base client's, field for field: what the runtime's own runs send and what a
-   * hop sends must be the same request, and a test sends both and compares them.
-   *
-   * A REFUSAL THE PLATFORM CALLS RETRYABLE IS ASKED AGAIN, for a few seconds, before it is given
-   * back. A Bot's computer tools run in the browser, so each command ends the run and the browser
-   * starts the next one with the result at once, while the platform is still letting go of the
-   * run before: that follow-up was refused (THREAD_LOCK_FAILED, retryable), the runtime answered
-   * the browser 409, and the browser stopped there, a command short and with no answer. The base
-   * client gives the refusal back at once and always did; the run before usually let go in time.
-   */
-  override async ɵacquireThreadLock(
-    params: Parameters<CopilotKitIntelligence["ɵacquireThreadLock"]>[0],
-  ): ReturnType<CopilotKitIntelligence["ɵacquireThreadLock"]> {
+  /** Lock com retry automático em 409 retryable. */
+  async ɵacquireThreadLock(
+    params: Parameters<NomaIntelligenceClient["ɵacquireThreadLock"]>[0],
+  ): ReturnType<NomaIntelligenceClient["ɵacquireThreadLock"]> {
     const giveUpAt = Date.now() + this.#lockConflictWaitMs;
     let delayMs = LOCK_CONFLICT_RETRY_FIRST_MS;
     for (;;) {
-      const answer = await this.#askForLock(params);
-      if (answer?.status === 409) {
+      try {
+        return await this.#inner.ɵacquireThreadLock(params);
+      } catch (error) {
+        const isConflict =
+          error instanceof PlatformRequestError && error.status === 409;
+        if (!isConflict) throw error;
         const left = giveUpAt - Date.now();
-        const refusal = expectedRefusal(answer);
-        if (refusal.retryable !== true || left <= 0) throw refusal;
+        if (!error.retryable || left <= 0) throw error;
         await new Promise((resolve) =>
           setTimeout(resolve, Math.min(delayMs, left)),
         );
         delayMs = Math.min(delayMs * 2, LOCK_CONFLICT_RETRY_MAX_MS);
-        continue;
       }
-      if (answered(answer))
-        return bodyOf<
-          Awaited<ReturnType<CopilotKitIntelligence["ɵacquireThreadLock"]>>
-        >(answer);
-      return super.ɵacquireThreadLock(params);
     }
   }
+}
 
-  /** The base client's lock request, unprinted. */
-  #askForLock(
-    params: Parameters<CopilotKitIntelligence["ɵacquireThreadLock"]>[0],
-  ) {
-    return askPlatform(this, {
-      method: "POST",
-      path: `/api/threads/${encodeURIComponent(params.threadId)}/lock`,
-      body: {
-        runId: params.runId,
-        userId: params.userId,
-        agentId: params.agentId,
-        ...(params.supportsBackendThreadId === undefined
-          ? {}
-          : { supportsBackendThreadId: params.supportsBackendThreadId }),
-        ...(params.learningContainerId !== undefined
-          ? { learningContainerId: params.learningContainerId }
-          : {}),
-        ...(params.requestId !== undefined
-          ? { requestId: params.requestId }
-          : {}),
-        ...(params.lockKeyPrefix !== undefined
-          ? { lockKeyPrefix: params.lockKeyPrefix }
-          : {}),
-        ...(params.ttlSeconds !== undefined
-          ? { ttlSeconds: params.ttlSeconds }
-          : {}),
+/**
+ * Stub mínimo de NomaIntelligenceClient para quando o toolkit é usado sem
+ * injeção explícita (ex.: servidor remoto que não passa a instância).
+ * Os métodos de memória/thread delegam ao servidor via fetch, mantendo
+ * compatibilidade com o fluxo original do CopilotKit.
+ */
+class _NomaIntelligenceStub implements NomaIntelligenceClient {
+  readonly #apiUrl: string;
+  readonly #apiKey: string;
+  readonly #wsUrl: string;
+
+  constructor(config: { apiUrl: string; wsUrl: string; apiKey: string }) {
+    this.#apiUrl = config.apiUrl.replace(/\/+$/, "");
+    this.#apiKey = config.apiKey;
+    this.#wsUrl = config.wsUrl;
+  }
+
+  ɵgetApiUrl() { return this.#apiUrl; }
+  ɵgetApiKey() { return this.#apiKey; }
+  ɵgetClientWsUrl() {
+    const base = this.#wsUrl.replace(/^http/, "ws").replace(/\/+$/, "");
+    return `${base}/client`;
+  }
+
+  async #post(path: string, body?: unknown) {
+    const res = await fetch(`${this.#apiUrl}${path}`, {
+      method: body !== undefined ? "POST" : "GET",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${this.#apiKey}`,
       },
-      ...(params.channelDeliveryId
-        ? {
-            headers: { "X-Cpki-Channel-Delivery-Id": params.channelDeliveryId },
-          }
-        : {}),
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
+    if (!res.ok) {
+      throw new PlatformRequestError(
+        `Noma API ${path} responded ${res.status}`,
+        res.status,
+        res.status >= 500 || res.status === 408 || res.status === 429,
+      );
+    }
+    return res.json() as Promise<Record<string, unknown>>;
+  }
+
+  async getRuntimeEntitlements() {
+    return this.#post("/api/entitlements/runtime") as Promise<import("@openbot/noma-intelligence/types").RuntimeEntitlementResponse>;
+  }
+  async getOrCreateThread(p: import("@openbot/noma-intelligence/types").GetOrCreateThreadParams) {
+    return this.#post("/api/threads", p) as Promise<import("@openbot/noma-intelligence/types").GetOrCreateThreadResult>;
+  }
+  async getThread(p: import("@openbot/noma-intelligence/types").GetThreadParams) {
+    return this.#post(`/api/threads/${encodeURIComponent(p.threadId)}?userId=${encodeURIComponent(p.userId)}`) as Promise<import("@openbot/noma-intelligence/types").GetThreadResult>;
+  }
+  async getThreadMessages(p: import("@openbot/noma-intelligence/types").GetThreadMessagesParams) {
+    return this.#post(`/api/threads/${encodeURIComponent(p.threadId)}/messages?userId=${encodeURIComponent(p.userId)}`) as Promise<import("@openbot/noma-intelligence/types").GetThreadMessagesResult>;
+  }
+  async ɵacquireThreadLock(p: import("@openbot/noma-intelligence/types").AcquireThreadLockParams) {
+    return this.#post(`/api/threads/${encodeURIComponent(p.threadId)}/lock`, p) as Promise<import("@openbot/noma-intelligence/types").AcquireThreadLockResult>;
+  }
+  async ɵrenewThreadLock(p: import("@openbot/noma-intelligence/types").RenewThreadLockParams) {
+    await this.#post(`/api/threads/${encodeURIComponent(p.threadId)}/lock/renew`, p);
+  }
+  async ɵcleanupThreadLock(p: import("@openbot/noma-intelligence/types").CleanupThreadLockParams) {
+    await this.#post(`/api/threads/${encodeURIComponent(p.threadId)}/lock/release`, p);
+  }
+  async ɵrecordRunStop(p: import("@openbot/noma-intelligence/types").RecordRunStopParams) {
+    if (p.signal?.aborted) return;
+    await this.#post("/api/runs/stop", p);
+  }
+  async listMemories(p: import("@openbot/noma-intelligence/types").ListMemoriesParams) {
+    return this.#post("/api/memories", p) as Promise<import("@openbot/noma-intelligence/types").ListMemoriesResult>;
+  }
+  async recallMemories(p: import("@openbot/noma-intelligence/types").RecallMemoriesParams) {
+    return this.#post("/api/memories/recall", p) as Promise<import("@openbot/noma-intelligence/types").RecallMemoriesResult>;
+  }
+  async createMemory(p: import("@openbot/noma-intelligence/types").CreateMemoryParams) {
+    return this.#post("/api/memories/create", p) as Promise<import("@openbot/noma-intelligence/types").CreateMemoryResult>;
+  }
+  async updateMemory(p: import("@openbot/noma-intelligence/types").UpdateMemoryParams) {
+    return this.#post("/api/memories/update", p) as Promise<import("@openbot/noma-intelligence/types").UpdateMemoryResult>;
+  }
+  async removeMemory(p: import("@openbot/noma-intelligence/types").RemoveMemoryParams) {
+    await this.#post("/api/memories/remove", p);
+  }
+  async getInspectorMetadata() {
+    return { available: false };
   }
 }
 
